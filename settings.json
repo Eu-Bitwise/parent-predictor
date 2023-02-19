@@ -1,0 +1,209 @@
+{
+    "train_column": [
+        "sexe",
+        "nbenfants",
+        "age",
+        "annedenaissance",
+        "type_commune",
+        "statut_commune",
+        "pourcent_individus_11_17ans",
+        "age_moyen_actifs",
+        "norm_pourcent_individus_4_10ans",
+        "norm_age_moyen_actifs",
+        "norm_pourcent_cspplus",
+        "top_grande_surface",
+        "top_emmenages_recents",
+        "top_habitat_individuel",
+        "top_proprietaire",
+        "top_menages_avecenfant",
+        "top_individus_65ansplus",
+        "top_cspplus",
+        "top_hauts_revenus",
+        "top_tres_hauts_revenus",
+        "GEOP_Poids",
+        "GEOP_Familles_JeunesAdos",
+        "GEOP_Hauts_Revenus",
+        "GEOP_CSP_PLUS",
+        "GEOP_Diplomes",
+        "GEOP_Maisons",
+        "GEOP_Grands_Logements",
+        "GEOP_2_Voitures_Et_Plus",
+        "GEOP_Logements_Anciens",
+        "GEOP_Zone_Commercante",
+        "GEOP_Departement"
+    ],
+    "target_prediction": [
+        "age_parent"
+    ],
+    "encode_variables": [
+        {
+            "name": "sexe",
+            "values": []
+        },
+        {
+            "name": "type_commune",
+            "values": []
+        },
+        {
+            "name": "statut_commune",
+            "values": []
+        },
+        {
+            "name": "GEOP_Departement",
+            "values": [
+                "01",
+                "02",
+                "03",
+                "04",
+                "05",
+                "06",
+                "07",
+                "08",
+                "09",
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "17",
+                "18",
+                "19",
+                "2A",
+                "2B",
+                "21",
+                "22",
+                "23",
+                "24",
+                "25",
+                "26",
+                "27",
+                "28",
+                "29",
+                "30",
+                "31",
+                "32",
+                "33",
+                "34",
+                "35",
+                "36",
+                "37",
+                "38",
+                "39",
+                "40",
+                "41",
+                "42",
+                "43",
+                "44",
+                "45",
+                "46",
+                "47",
+                "48",
+                "49",
+                "50",
+                "51",
+                "52",
+                "53",
+                "54",
+                "55",
+                "56",
+                "57",
+                "58",
+                "59",
+                "60",
+                "61",
+                "62",
+                "63",
+                "64",
+                "65",
+                "66",
+                "67",
+                "68",
+                "69",
+                "70",
+                "71",
+                "72",
+                "73",
+                "74",
+                "75",
+                "76",
+                "77",
+                "78",
+                "79",
+                "80",
+                "81",
+                "82",
+                "83",
+                "84",
+                "85",
+                "86",
+                "87",
+                "88",
+                "89",
+                "90",
+                "91",
+                "92",
+                "93",
+                "94",
+                "95",
+                "971",
+                "972",
+                "973",
+                "974",
+                "976"
+            ]
+        }
+    ],
+    "custom_normalization": [
+        {
+            "name": "nbenfants",
+            "min": 0,
+            "max": 5
+        },
+        {
+            "name": "age",
+            "min": 1,
+            "max": 100
+        },
+        {
+            "name": "age_parent",
+            "min": 18,
+            "max": 65
+        },
+        {
+            "name": "annedenaissance",
+            "min": 1940,
+            "max": 2005
+        },
+        {
+            "name": "enfant_annee",
+            "min": 1980,
+            "max": 3000
+        },
+        {
+            "name": "enfant_mois",
+            "min": 1,
+            "max": 12
+        }
+    ],
+    "replace_nan": true,
+    "hyperparameter": {
+        "epoch": 450,
+        "batch_size": 50,
+        "model": {
+            "optimizer": {
+                "class_name":"Adagrad",
+                "param": {
+                    "learning_rate": 0.001,
+                    "initial_accumulator_value": 0
+                }
+            },
+            "init": "uniform",
+            "neurons": 100,
+            "activation": "relu",
+            "dropout_rate": 0.1,
+            "weight_constraint": 2
+        }
+    }
+}
