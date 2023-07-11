@@ -2,177 +2,203 @@
 Predictor is the second component of the application.
 
 It serves too:
-1. load the keras predictor model generated from the learner
-2. load the data encoding & normalizer config 
+1. Load the keras predictor model generated from the learner
+2. Load the data encoding & normalizer config 
 4. Load the source data and populate with the predictions for each row
-
-DEPENDENCIES: 
-    -tensorflow
-    -sklearn
-    -numpy
-    -h5py
 """
 
 import os
-# Configure which GPU device to use
-# os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-# os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-
-import tensorflow as tf
-from tensorflow.python.client import device_lib 
-from tensorflow.keras.callbacks import Callback
-
-# Import custom
-import os
 import sys
-sys.path.append(os.path.dirname(os.path.realpath(__file__)))
 import json
 import datetime
 import numpy as np
-import pandas
+import pandas as pd
+import tensorflow as tf
 from loguru import logger
-from matplotlib import pyplot
+from matplotlib import pyplot as plt
+from tensorflow.python.client import device_lib
+from tensorflow.keras.callbacks import Callback
 
+# Custom library
+sys.path.append(os.path.dirname(os.path.realpath(__file__)))
 import lib
 
 class PredictTime(Callback):
+    """Callback to log the prediction time."""
+    
     def on_predict_begin(self, logs=None):
         self.start = datetime.datetime.now()
-        logger.info("Predict: begins at {}".format(self.start.time()))
+        logger.info(f"Predict: begins at {self.start.time()}")
 
     def on_predict_end(self, logs=None):
         self.end = datetime.datetime.now() 
         self.execTime = (self.end  - self.start).total_seconds()
-        logger.info("Predict: end at {}".format(self.end.time()))
+        logger.info(f"Predict: end at {self.end.time()}")
 
-class Predictor():
+class Predictor:
+    """Class to predict the data using a trained model."""
+    
     def __init__(self, dataframe, settings_file, working_dir, with_debug_target=False):
         self.source_dataframe = dataframe
         self.transform_dataframe = dataframe
         self.settings_file = settings_file
         self.working_dir = working_dir
         self.with_debug_target = with_debug_target
-
         self.setup = lib.Setup()
-        self.setup.loadLearnerSettings(self.settings_file)
-        self.setup.setWorkingDir(working_dir, log_dir="/predictor")
+        self.setup.load_learner_settings(self.settings_file)
+        self.setup.set_working_dir(working_dir, log_dir="/predictor")
 
-        self.encoder_file = self.setup.config_dir + "/encoder.pickle"
-        self.noramalization_file = self.setup.config_dir + "/normalization_minmax.json"
-        self.model_file = self.setup.config_dir + "/model.h5"
+        # File paths
+        self.encoder_file = os.path.join(self.setup.config_dir, "encoder.pickle")
+        self.normalization_file = os.path.join(self.setup.config_dir, "normalization_minmax.json")
+        self.model_file = os.path.join(self.setup.config_dir, "model.h5")
 
-        # Check if required file exist
-        if not os.path.exists(self.encoder_file): sys.exit(logger.error("Could not found encoder.pickle file"))
-        if not os.path.exists(self.noramalization_file): sys.exit(logger.error("Could not found normalization_minmax.json"))
-        if not os.path.exists(self.model_file): sys.exit(logger.error("Could not found Keras model file"))
-        
+        # Check if required files exist
+        self._check_required_files()
+
+        # Check device
         print(device_lib.list_local_devices())
-        if tf.test.gpu_device_name():
-            print("Using GPU")
-        else:
-            print("No GPU found, using CPU")
+        print("Using GPU") if tf.test.gpu_device_name() else print("No GPU found, using CPU")
+
+    def _check_required_files(self):
+        """Check if the required files exist."""
+        
+        required_files = [self.encoder_file, self.normalization_file, self.model_file]
+        for file in required_files:
+            if not os.path.exists(file): 
+                logger.error(f"Could not found {os.path.basename(file)}")
+                sys.exit()
 
     def transformData(self):
+        """Transforms the data for prediction."""
+        
         try:
-            # Set dataframe column      
             if self.with_debug_target:
                 # Keep target prediction column for dubug prediction
                 train_column = self.source_dataframe[self.setup.loaded_settings["train_column"]]
-                target_column  = self.source_dataframe[self.setup.loaded_settings["target_prediction"]]
-                self.transform_dataframe = pandas.concat([train_column, target_column], axis=1)
+                target_column = self.source_dataframe[self.setup.loaded_settings["target_prediction"]]
+                self.transform_dataframe = pd.concat([train_column, target_column], axis=1)
             else:
                 self.transform_dataframe = self.transform_dataframe[self.setup.loaded_settings["train_column"]]     
         except KeyError as e:
-            logger.error("Could not parse header file. " + \
-                "Make sure that the header file is the same as the columns used for the train set. %s" % (e))
+            logger.error(f"Could not parse header file. Make sure that the header file is the same as the columns used for the train set. {e}")
             sys.exit(1)
-        # Check if dataframe contains NAN values
-        self.setup.hasDataframeNan(self.transform_dataframe)
-        # Encoding data to numerical values
-        self.setup.encodeLabel(self.transform_dataframe, load_file=True)
-        # Normalize data
-        self.setup.normalizeDataframe(self.transform_dataframe, load_file=True)
         
+        # Check if dataframe contains NAN values
+        self.setup.has_dataframe_nan(self.transform_dataframe)
+        
+        # Encode and Normalize data
+        self.setup.encode_label(self.transform_dataframe, load_file=True)
+        self.setup.normalize_dataframe(self.transform_dataframe, load_file=True)
+
     def predictData(self, show_prediction=False):
-        # Set models inputs
+        """Predicts the data using the trained model."""
+
         new_X = self.transform_dataframe
         target_prediction = self.setup.loaded_settings["target_prediction"]
-       
+
         if self.with_debug_target:
-            # Drop target prediction
-            new_X = self.transform_dataframe.drop(columns=target_prediction, axis=1)
-            # Cache debug target prediction
-            debug_new_Y = self.transform_dataframe[target_prediction]
-            # Convert to np array
-            new_X = new_X.to_numpy()
-            debug_new_Y = debug_new_Y.to_numpy()
-            # Denormalized debug Y
-            dnz_debug_Y = self.setup.denormalizeDataset(debug_new_Y, target_prediction).round(0).astype(int)
-            
-        # Keras Callback instance
+            # Prepare debug target prediction
+            new_X, debug_new_Y, dnz_debug_Y = self._prepare_debug_target(new_X, target_prediction)
+
         # Get fit execution time
         predict_time_callback = PredictTime()
-        # Predict target columns
-        # Load model
-        loadedModel = self.setup.loadModel()
+
+        # Load model and predict target columns
+        loaded_model = self.setup.load_model()
+
         try:
-            predicted_Y = loadedModel.predict(new_X, callbacks=[predict_time_callback])
+            predicted_Y = loaded_model.predict(new_X, callbacks=[predict_time_callback])
         except Exception as e:
             logger.error(e)
             sys.exit()
-        logger.info("Data prediction execution time = %.2f sec" % round(predict_time_callback.execTime, 2))
-        # Denormalized predictions
-        self.dnz_predicted_Y = self.setup.denormalizeDataset(predicted_Y, target_prediction).round(0).astype(int)
+
+        logger.info(f"Data prediction execution time = {round(predict_time_callback.execTime, 2)} sec")
+
+        # Denormalize predictions
+        self.dnz_predicted_Y = self.setup.denormalize_dataset(predicted_Y, target_prediction).round(0).astype(int)
 
         # Record predictions
-        if show_prediction:
-            for i in range(len(new_X)):
-                # Get "année de naissance"
-                test = self.source_dataframe.loc[self.source_dataframe.index[i], "annedenaissance"] + self.dnz_predicted_Y[i]
-                # Debug real data with predicted outputs
-                if self.with_debug_target:
-                    logger.debug("Real=%s VS Predicted=%s TEST=%s" % (dnz_debug_Y[i],  self.dnz_predicted_Y[i], test))   
-                else:    
-                    logger.debug("Predicted=%s TEST=%s" % (self.dnz_predicted_Y[i], test ) )
-        
-        # Retrieve debug prediction meaning
+        self._record_predictions(new_X, dnz_debug_Y, show_prediction, target_prediction)
+
+        # Debug prediction analysis
         if self.with_debug_target:
-            prediction_deviation = []
-            # Get deviation
-            for i in range(len(new_X)): prediction_deviation.append(abs(dnz_debug_Y[i] - self.dnz_predicted_Y[i]))
-            # Convert numpy array to dataframe
-            prediction_deviation = pandas.DataFrame(prediction_deviation, columns=target_prediction)
-            logger.info("Max predicted deviation:\n%s" % (prediction_deviation.max()))
-            logger.info("Min predicted deviation:\n%s" % (prediction_deviation.min()))
-            logger.info("Mean predicted deviation:\n%s" % (prediction_deviation.mean().round(2)))
-            exactPrediction = ((prediction_deviation == 0).sum(axis=0) / prediction_deviation.size) * 100
-            logger.info("Exact prediction rate (percent):\n%s" % (exactPrediction.round(2)))
-            # Plot deviation
-            prediction_deviation.plot(kind="box", grid=True, title="Debug prediction deviation per column")
-            # Save as png meaning prediction plot
-            pyplot.savefig(self.working_dir + "/debug_prediction_deviation.png")
+            self._analyze_debug_prediction(new_X, dnz_debug_Y, target_prediction)
+
+    def _prepare_debug_target(self, new_X, target_prediction):
+        """Prepares the debug target prediction data."""
+
+        # Drop target prediction
+        new_X = self.transform_dataframe.drop(columns=target_prediction, axis=1)
+        
+        # Cache debug target prediction
+        debug_new_Y = self.transform_dataframe[target_prediction]
+
+        # Convert to np array
+        new_X = new_X.to_numpy()
+        debug_new_Y = debug_new_Y.to_numpy()
+
+        # Denormalize debug Y
+        dnz_debug_Y = self.setup.denormalize_dataset(debug_new_Y, target_prediction).round(0).astype(int)
+
+        return new_X, debug_new_Y, dnz_debug_Y
+
+    def _record_predictions(self, new_X, dnz_debug_Y, show_prediction, target_prediction):
+        """Records the predictions and logs them if required."""
+
+        for i in range(len(new_X)):
+            # Get "année de naissance"
+            test = self.source_dataframe.loc[self.source_dataframe.index[i], "annedenaissance"] + self.dnz_predicted_Y[i]
+
+            # Debug real data with predicted outputs
+            if self.with_debug_target:
+                logger.debug(f"Real={dnz_debug_Y[i]} VS Predicted={self.dnz_predicted_Y[i]} TEST={test}")   
+            else:    
+                logger.debug(f"Predicted={self.dnz_predicted_Y[i]} TEST={test}")
+
+    def _analyze_debug_prediction(self, new_X, dnz_debug_Y, target_prediction):
+        """Analyzes the debug predictions and plots the deviation."""
+
+        prediction_deviation = []
+        # Get deviation
+        for i in range(len(new_X)):
+            prediction_deviation.append(abs(dnz_debug_Y[i] - self.dnz_predicted_Y[i]))
+
+        # Convert numpy array to dataframe
+        prediction_deviation = pd.DataFrame(prediction_deviation, columns=target_prediction)
+
+        self._log_deviation(prediction_deviation)
+        
+        # Plot deviation
+        prediction_deviation.plot(kind="box", grid=True, title="Debug prediction deviation per column")
+        # Save as png meaning prediction plot
+        plt.savefig(os.path.join(self.working_dir, "debug_prediction_deviation.png"))
+
+    def _log_deviation(self, prediction_deviation):
+        """Logs the deviation metrics."""
+
+        logger.info(f"Max predicted deviation:\n{prediction_deviation.max()}")
+        logger.info(f"Min predicted deviation:\n{prediction_deviation.min()}")
+        logger.info(f"Mean predicted deviation:\n{prediction_deviation.mean().round(2)}")
+        
+        exact_prediction = ((prediction_deviation == 0).sum(axis=0) / prediction_deviation.size) * 100
+        logger.info(f"Exact prediction rate (percent):\n{exact_prediction.round(2)}")
 
     def exportPredictionFile(self, output_dir):
+        """Exports the prediction data to a file."""
+
         # Numpy array to Dataframe
-        prediction_dataframe = pandas.DataFrame(self.dnz_predicted_Y, 
+        prediction_dataframe = pd.DataFrame(self.dnz_predicted_Y, 
          columns=self.setup.loaded_settings["target_prediction"])
         # Append predicted column into the source dataframe
         # output_dataframe = self.source_dataframe
-        # output_dataframe = self.setup.denormalizeDataframe(output_dataframe)
-        # output_dataframe = self.setup.decodeLabel(output_dataframe)
-        # output_dataframe = output_dataframe.reset_index().drop(columns=["index"]) 
+        # output_dataframe = self.setup.denormalize_dataset(output_dataframe)
+        # output_dataframe = self.setup.decode_label(output_dataframe)
+        # output_dataframe = output_dataframe.reset_index().drop(columns=["index"])
+        output_dataframe = pd.concat([self.source_dataframe, prediction_dataframe], axis=1)
         
-        output_dataframe = pandas.concat([self.source_dataframe, prediction_dataframe], axis=1)
         # Create output file
-        export_file = output_dir + "/output_data.csv"
-        pandas.DataFrame(output_dataframe).to_csv(export_file, encoding="latin-1")
-        logger.success("Predictions has been exported in %s file" % (export_file))
-
-# def standalone(): 
-#     # Load dataset
-#     # file_obj = open("")
-#     # output_dataframe = pandas.read_csv(file_obj, encoding="latin-1")
-#     # predictor = Predictor(output_dataframe, "settings.json", "Etmp/", with_debug_target=True)
-#     # predictor.transformData()
-#     # predictor.predictData(show_prediction=True)
-#     # predictor.exportPredictionFile("")
+        export_file = os.path.join(output_dir, "output_data.csv")
+        output_dataframe.to_csv(export_file, encoding="latin-1")
+        
+        logger.success(f"Predictions has been exported in {export_file} file")
